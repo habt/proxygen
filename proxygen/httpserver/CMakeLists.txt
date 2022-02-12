@@ -144,6 +144,39 @@ if (BUILD_QUIC)
   )
 endif()
 
+if (BUILD_QUIC)
+  add_executable(team
+      team/main.cpp
+      team/FizzContext.cpp
+      team/HQClient.cpp
+      team/HQLoggerHelper.cpp
+      team/HQServer.cpp
+      team/HQParams.cpp
+      team/SampleHandlers.cpp
+  )
+  target_compile_options(
+      team
+      PRIVATE
+          ${_PROXYGEN_COMMON_COMPILE_OPTIONS}
+  )
+  target_link_libraries(
+      team
+      PUBLIC
+          fizz::fizz
+          proxygen
+          proxygencurl
+          proxygenhttpserver
+          mvfst::mvfst_transport
+          mvfst::mvfst_client
+          mvfst::mvfst_server
+  )
+  install(
+      TARGETS team
+      EXPORT proxygen-exports
+      DESTINATION bin
+  )
+endif()
+
 file(
     GLOB_RECURSE PROXYGEN_HTTPSERVER_HEADERS_TOINSTALL
     RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}

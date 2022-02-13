@@ -97,7 +97,7 @@ HQClient::sendRequest(const proxygen::URL& requestUrl) {
                                                 params_.httpVersion.minor);
 
   client->setLogging(params_.logResponse);
-  client->setHeadersLogging(params_.logResponseHeaders);
+  //client->setHeadersLogging(params_.logResponseHeaders);
   auto txn = session_->newTransaction(client.get());
   //VLOG(0) << "before txn check " << std::endl;
   if (!txn) {

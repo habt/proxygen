@@ -1014,4 +1014,4 @@ class StaticFileHandler : public BaseSampleHandler {
   const std::string staticRoot_;
 };
 
-}} // namespace quic::samples
+}} // namespace quic::team

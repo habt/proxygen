@@ -31,4 +31,4 @@ class HQLoggerHelper : public ::quic::FileQLogger {
   std::string outputPath_;
   bool pretty_;
 };
-}} // namespace quic::samples
+}} // namespace quic::team

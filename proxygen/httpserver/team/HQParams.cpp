@@ -453,4 +453,4 @@ const folly::Expected<HQParams, HQInvalidParams> initializeParamsFromCmdline(
   }
 }
 
-}} // namespace quic::samples
+}} // namespace quic::team

@@ -189,4 +189,4 @@ class H2Server {
 
 void startServer(const HQParams& params);
 
-}} // namespace quic::samples
+}} // namespace quic::team

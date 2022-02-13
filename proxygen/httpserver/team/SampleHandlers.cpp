@@ -9,7 +9,7 @@
 #include <string>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string.hpp>
-#include <proxygen/httpserver/samples/hq/SampleHandlers.h>
+#include <proxygen/httpserver/team/SampleHandlers.h>
 
 namespace quic { namespace team {
 
@@ -237,4 +237,4 @@ void ServerPushHandler::onEOM() noexcept {
 void ServerPushHandler::onError(const proxygen::HTTPException& error) noexcept {
   VLOG(10) << "ServerPushHandler::onError error=" << error.what();
 }
-}} // namespace quic::samples
+}} // namespace quic::team

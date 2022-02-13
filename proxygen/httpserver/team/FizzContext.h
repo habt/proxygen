@@ -25,4 +25,4 @@ FizzServerContextPtr createFizzServerContext(const HQParams& params);
 FizzClientContextPtr createFizzClientContext(const HQParams& params);
 
 wangle::SSLContextConfig createSSLContext(const HQParams& params);
-}} // namespace quic::samples
+}} // namespace quic::team

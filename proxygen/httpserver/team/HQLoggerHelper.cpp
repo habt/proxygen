@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <proxygen/httpserver/samples/hq/HQLoggerHelper.h>
+#include <proxygen/httpserver/team/HQLoggerHelper.h>
 
 using namespace quic::team;
 

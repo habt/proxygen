@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <proxygen/httpserver/samples/hq/HQServer.h>
+#include <proxygen/httpserver/team/HQServer.h>
 
 #include <ostream>
 #include <string>
@@ -314,4 +314,4 @@ void startServer(const HQParams& params) {
   h2server.join();
 }
 
-}} // namespace quic::samples
+}} // namespace quic::team

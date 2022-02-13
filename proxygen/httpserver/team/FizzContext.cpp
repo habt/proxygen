@@ -183,4 +183,4 @@ wangle::SSLContextConfig createSSLContext(const HQParams& params) {
   return sslCfg;
 }
 
-}} // namespace quic::samples
+}} // namespace quic::team

@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <proxygen/httpserver/samples/hq/PartiallyReliableCurlClient.h>
+#include <proxygen/httpserver/team/PartiallyReliableCurlClient.h>
 
 namespace quic { namespace team {
 void PartiallyReliableCurlClient::onHeadersComplete(
@@ -167,4 +167,4 @@ bool PartiallyReliableSender::hasMoreData() const {
   return !sndBuf_.empty();
 }
 
-}} // namespace quic::samples
+}} // namespace quic::team

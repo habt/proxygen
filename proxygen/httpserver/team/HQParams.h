@@ -150,4 +150,4 @@ std::ostream& operator<<(std::ostream&, HQParams&);
 const folly::Expected<HQParams, HQInvalidParams> initializeParamsFromCmdline(
     HQParamsBuilderFromCmdline::initializer_list initial = {});
 
-}} // namespace quic::samples
+}} // namespace quic::team

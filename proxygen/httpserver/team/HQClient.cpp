@@ -56,7 +56,7 @@ std::cout << "HellO\n";
   // TODO: turn on cert verification
   wangle::TransportInfo tinfo;
   session_ = new proxygen::HQUpstreamSession(params_.txnTimeout,
-                                             params_.connectTimeout,
+                                             std::chrono::milliseconds(5000),
                                              nullptr, // controller
                                              tinfo,
                                              nullptr); // codecfiltercallback
@@ -163,9 +163,6 @@ void HQClient::sendRequests(bool closeSession) {
 static std::function<void()> selfSchedulingRequestRunner;
 
 void HQClient::connectSuccess() {
-  if (params_.sendKnobFrame) {
-    sendKnobFrame("Hello, World from Client!");
-  }
   numOpenableStreams =
       quicClient_->getNumOpenableBidirectionalStreams();
   CHECK_GT(numOpenableStreams, 0);
@@ -203,23 +200,6 @@ void HQClient::connectSuccess() {
   }
 }
 
-void HQClient::sendKnobFrame(const folly::StringPiece str) {
-  if (str.empty()) {
-    return;
-  }
-  uint64_t knobSpace = 0xfaceb00c;
-  uint64_t knobId = 100;
-  Buf buf(folly::IOBuf::create(str.size()));
-  memcpy(buf->writableData(), str.data(), str.size());
-  buf->append(str.size());
-  VLOG(10) << "Sending Knob Frame to peer. KnobSpace: " << std::hex << knobSpace
-           << " KnobId: " << std::dec << knobId << " Knob Blob" << str;
-  const auto knobSent = quicClient_->setKnob(0xfaceb00c, 100, std::move(buf));
-  if (knobSent.hasError()) {
-    LOG(ERROR) << "Failed to send Knob frame to peer. Received error: "
-               << knobSent.error();
-  }
-}
 
 void HQClient::onReplaySafe() {
   VLOG(10) << "Transport replay safe";

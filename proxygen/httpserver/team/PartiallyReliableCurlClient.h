@@ -158,4 +158,4 @@ class PartiallyReliableSender : public PartiallyReliablePeerBase {
  };
 };
 
-}} // namespace quic::samples
+}} // namespace quic::team

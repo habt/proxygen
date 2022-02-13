@@ -3,7 +3,7 @@
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree. kör hårt, du fixart!
+ * LICENSE file in the root directory of this source tree.
  */
 
 #include <folly/portability/GFlags.h>
@@ -16,6 +16,7 @@
 #include <proxygen/httpserver/team/HQParams.h>
 #include <proxygen/httpserver/team/HQServer.h>
 #include <proxygen/lib/transport/PersistentQuicPskCache.h>
+
 
 using namespace quic::team;
 
@@ -51,7 +52,8 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     return 0;
-  } else {
+  }
+  else {
     for (auto& param : expectedParams.error()) {
       LOG(ERROR) << "Invalid param: " << param.name << " " << param.value << " "
                  << param.errorMsg;

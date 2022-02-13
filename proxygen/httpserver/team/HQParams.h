@@ -21,7 +21,7 @@
 #include <proxygen/lib/http/HTTPHeaders.h>
 #include <proxygen/lib/http/HTTPMethod.h>
 #include <quic/QuicConstants.h>
-#include <quic/fizz/client/handshake/QuicPskCache.h>
+#include <quic/client/handshake/QuicPskCache.h>
 #include <quic/server/QuicServerTransport.h>
 
 namespace quic { namespace team {
@@ -52,7 +52,6 @@ struct HQParams {
   std::string logdir;
   std::string outdir;
   bool logResponse;
-  bool logResponseHeaders;
 
   // Transport section
   std::string host;
@@ -69,10 +68,6 @@ struct HQParams {
   std::string congestionControlName;
   folly::Optional<quic::CongestionControlType> congestionControl;
   bool earlyData;
-  folly::Optional<int64_t> rateLimitPerThread;
-  std::chrono::milliseconds connectTimeout;
-  std::string ccpConfig;
-  bool sendKnobFrame;
 
   // HTTP section
   uint16_t h2port;
@@ -92,6 +87,11 @@ struct HQParams {
   bool httpServerEnableContentCompression;
   bool h2cEnabled;
 
+  // Partial reliability section
+  bool partialReliabilityEnabled{false};
+  folly::Optional<uint64_t> prChunkSize;
+  folly::Optional<uint64_t> prChunkDelayMs;
+
   // QLogger section
   std::string qLoggerPath;
   bool prettyJson;
@@ -105,9 +105,6 @@ struct HQParams {
   std::string pskFilePath;
   std::shared_ptr<quic::QuicPskCache> pskCache;
   fizz::server::ClientAuthMode clientAuth{fizz::server::ClientAuthMode::None};
-
-  // Transport knobs
-  std::string transportKnobs;
 
   bool migrateClient{false};
 };
@@ -153,4 +150,4 @@ std::ostream& operator<<(std::ostream&, HQParams&);
 const folly::Expected<HQParams, HQInvalidParams> initializeParamsFromCmdline(
     HQParamsBuilderFromCmdline::initializer_list initial = {});
 
-}} // namespace quic::team
+}} // namespace quic::samples

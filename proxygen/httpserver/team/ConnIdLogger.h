@@ -10,11 +10,11 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include <cctype>
 #include <folly/Conv.h>
 #include <folly/File.h>
 #include <folly/Synchronized.h>
 #include <memory>
+#include <regex>
 #include <string>
 
 #include <proxygen/httpserver/team/HQParams.h>
@@ -37,22 +37,9 @@ struct ConnIdLogSink : google::LogSink {
             const char* message,
             size_t message_len) override {
     folly::StringPiece testMsg(message, message_len);
-    // The incoming string are expected to be in the format of
-    // ".* CID=([a-f0-9]+)[, ].*"
-    folly::StringPiece pre, post; // pre will be ignored
-    folly::split("CID=", testMsg, pre, post);
-    if (post.empty()) {
-      return;
-    }
-    std::vector<folly::StringPiece> cids;
-    folly::split(",", post, cids);
-    for (const auto& cidSp : cids) {
-      if (!std::all_of(cidSp.begin(), cidSp.end(), [](char c) {
-            return std::isalnum(c);
-          })) {
-        continue;
-      }
-      auto cid = cidSp.str();
+    std::match_results<const char*> cidMatch;
+    if (std::regex_match(testMsg.begin(), testMsg.end(), cidMatch, cidRegex_)) {
+      auto cid = cidMatch[1].str();
       int fd = -1;
       {
         auto now = std::chrono::system_clock::now();
@@ -112,6 +99,7 @@ struct ConnIdLogSink : google::LogSink {
 
   std::string logDir_;
   std::string prefix_;
+  std::regex cidRegex_{".* CID=([a-f0-9]+)[, ].*"};
   folly::Synchronized<FdMap> fdMap_;
   std::array<char, 5> severityMap{{'V', 'I', 'W', 'E', 'F'}};
   const std::chrono::seconds kMaxAge{60};

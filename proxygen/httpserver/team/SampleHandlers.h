@@ -15,18 +15,18 @@
 #include <mutex>
 #include <random>
 #include <vector>
-#include <filesystem>
 
+#include <folly/executors/GlobalExecutor.h>
 #include <folly/File.h>
 #include <folly/FileUtil.h>
 #include <folly/Format.h>
 #include <folly/Memory.h>
 #include <folly/Random.h>
 #include <folly/ThreadLocal.h>
-#include <folly/executors/GlobalExecutor.h>
 #include <folly/io/async/AsyncTimeout.h>
 #include <folly/io/async/EventBaseManager.h>
 #include <proxygen/httpserver/team/HQParams.h>
+#include <proxygen/httpserver/team/PartiallyReliableCurlClient.h>
 #include <proxygen/lib/http/session/HTTPTransaction.h>
 
 namespace quic { namespace team {
@@ -35,6 +35,17 @@ using random_bytes_engine =
     std::independent_bits_engine<std::default_random_engine,
                                  CHAR_BIT,
                                  unsigned char>;
+
+constexpr folly::StringPiece kPartiallyReliableScriptHeader{"x-pr-script"};
+constexpr folly::StringPiece kPartiallyReliableChunkDelayMsHeader{
+    "x-pr-chunk-delay-ms"};
+constexpr folly::StringPiece kPartiallyReliableChunkSizeHeader{
+    "x-pr-chunk-size"};
+constexpr folly::StringPiece kPartiallyReliableChunkDelayCapMsHeader{
+    "x-pr-chunk-delay-cap-ms"};
+
+const uint64_t kDefaultPartiallyReliableChunkSize = 16;
+const uint64_t kDefaultPartiallyReliableChunkDelayMs = 0;
 
 class BaseSampleHandler : public proxygen::HTTPTransactionHandler {
  public:
@@ -75,9 +86,9 @@ class BaseSampleHandler : public proxygen::HTTPTransactionHandler {
       return;
     }
     msg.getHeaders().add(
-        proxygen::HTTP_HEADER_ALT_SVC,
-        folly::format("{}=\":{}\"; ma=3600", params_.protocol, params_.port)
-            .str());
+      proxygen::HTTP_HEADER_ALT_SVC,
+      folly::format(
+        "{}=\":{}\"; ma=3600", params_.protocol, params_.port).str());
   }
 
   // clang-format off
@@ -206,6 +217,315 @@ class TransportCallbackBase
 
   void bodyBytesReceived(size_t /* size */) noexcept override {
   }
+};
+
+/**
+ * Streams ASCII cat in partially realible mode.
+ */
+class PrCatHandler
+    : public EchoHandler
+    , public TransportCallbackBase
+    , public folly::AsyncTimeout {
+ public:
+  explicit PrCatHandler(const HQParams& params)
+      : EchoHandler(params),
+        chunkSize_(params.prChunkSize),
+        chunkDelayMs_(params.prChunkDelayMs) {
+  }
+
+  PrCatHandler() = delete;
+
+  void setPrParams(folly::Optional<uint64_t> prChunkSize,
+                   folly::Optional<uint64_t> prChunkDelayMs) {
+    chunkSize_ = prChunkSize;
+    chunkDelayMs_ = prChunkDelayMs;
+  }
+
+  // TransportCallbackBase
+  void lastEgressHeaderByteAcked() noexcept override {
+    attachEventBase(folly::EventBaseManager::get()->getEventBase());
+    timeoutExpired();
+  }
+
+  void onEOM() noexcept override {
+  }
+
+  void onHeadersComplete(
+      std::unique_ptr<proxygen::HTTPMessage> /* msg */) noexcept override {
+    VLOG(10) << "PrCatHandler::onHeadersComplete";
+    proxygen::HTTPMessage resp;
+    VLOG(10) << "Setting http-version to " << getHttpVersion();
+    resp.setVersionString(getHttpVersion());
+    resp.setStatusCode(200);
+    resp.setStatusMessage("Ok");
+    resp.getHeaders().add("pr-chunk-size", folly::to<std::string>(*chunkSize_));
+    resp.setWantsKeepalive(true);
+    resp.setPartiallyReliable();
+    txn_->setTransportCallback(this);
+    txn_->sendHeaders(resp);
+  }
+
+  void onBodyPeek(uint64_t offset,
+                       const folly::IOBuf& chain) noexcept override {
+    LOG(INFO) << __func__ << ": got " << chain.computeChainDataLength()
+              << " bytes at offset " << offset;
+  }
+
+  void onBodySkipped(uint64_t /* newOffset */) noexcept override {
+    LOG(FATAL) << __func__ << ": wrong side to receive this callback ";
+  }
+
+  void onBodyRejected(uint64_t offset) noexcept override {
+    cancelTimeout();
+    LOG(INFO) << __func__ << ": data for chunk " << curPartNum_
+               << " (offset = " << offset << ") cancelled ( was scheduled with "
+               << delayMs_ << "ms delay)";
+
+    auto chunk = dataSndr_.generateChunk();
+    CHECK(chunk);
+    bool eom = !dataSndr_.hasMoreData();
+
+    if (eom) {
+      LOG(INFO) << __func__ << ":    sending EOM after last chunk "
+                 << curPartNum_;
+      txn_->sendEOM();
+    } else {
+      curPartNum_ = offset / *chunkSize_;
+      delayMs_ = folly::Random::rand64(*chunkDelayMs_);
+      scheduleTimeout(delayMs_);
+    }
+  }
+
+  void timeoutExpired() noexcept override {
+    LOG(INFO) << ": sending body part " << curPartNum_ << " with delay "
+              << delayMs_ << " ms";
+    auto chunk = dataSndr_.generateChunk();
+    CHECK(chunk);
+    bool eom = !dataSndr_.hasMoreData();
+
+    txn_->sendBody(std::move(*chunk));
+    if (eom) {
+      LOG(INFO) << __func__ << ":    sending EOM with chunk " << curPartNum_;
+      txn_->sendEOM();
+    } else {
+      delayMs_ = folly::Random::rand64(*chunkDelayMs_);
+      scheduleTimeout(delayMs_);
+    }
+
+    curPartNum_++;
+  }
+
+private:
+  uint64_t delayMs_{0};
+  uint64_t curPartNum_{0};
+  folly::Optional<uint64_t> chunkSize_{kDefaultPartiallyReliableChunkSize};
+  folly::Optional<uint64_t> chunkDelayMs_{
+      kDefaultPartiallyReliableChunkDelayMs};
+  PartiallyReliableSender dataSndr_{kDefaultPartiallyReliableChunkSize};
+};
+
+/**
+ * Sends body/skip sequence according to the script received in client headers.
+ */
+class PrSkipHandler
+    : public EchoHandler
+    , public folly::AsyncTimeout {
+ public:
+  explicit PrSkipHandler(const HQParams& params) : EchoHandler(params) {
+  }
+
+  PrSkipHandler() = delete;
+
+  void onEOM() noexcept override {
+  }
+
+  void onHeadersComplete(
+      std::unique_ptr<proxygen::HTTPMessage> msg) noexcept override {
+
+    msg->getHeaders().forEach(
+        [&](const std::string& header, const std::string& val) {
+          if (header == kPartiallyReliableScriptHeader) {
+            script = val;
+          } else if (header == kPartiallyReliableChunkDelayMsHeader) {
+            auto res = folly::tryTo<uint64_t>(val);
+            if (res.hasError()) {
+              LOG(ERROR) << __func__ << ": failed to convert " << header << " '"
+                         << val << "' to uint64_t";
+              txn_->sendAbort();
+            }
+            chunkDelayMs_ = *res;
+          }
+        });
+
+    proxygen::HTTPMessage resp;
+    resp.setVersionString(getHttpVersion());
+    resp.setStatusCode(200);
+    resp.setStatusMessage("Ok");
+    resp.setWantsKeepalive(true);
+    resp.setPartiallyReliable();
+    txn_->sendHeaders(resp);
+
+    if (script.length() == 0) {
+      txn_->sendEOM();
+    }
+  }
+
+  void onUnframedBodyStarted(uint64_t /* offset */) noexcept override {
+  }
+
+  void onBody(std::unique_ptr<folly::IOBuf> chain) noexcept override {
+    chunkSize_ = chain->computeChainDataLength();
+    if (chunkSize_ == 0) {
+      txn_->sendEOM();
+      return;
+    }
+
+    chunkData_ = std::move(chain);
+
+    attachEventBase(folly::EventBaseManager::get()->getEventBase());
+    timeoutExpired();
+  }
+
+  void timeoutExpired() noexcept override {
+    bool eom = (curPartNum_ == script.length() - 1);
+
+    if (script[curPartNum_] == 'b') {
+      LOG(INFO) << ": sending body part " << curPartNum_ << " with delay "
+                << delayMs_ << " ms";
+      txn_->sendBody(chunkData_->clone());
+    } else {
+      uint64_t nextOffset =
+          chunkData_->computeChainDataLength() * (curPartNum_ + 2);
+      auto res = txn_->skipBodyTo(nextOffset);
+      if (res.hasError()) {
+        LOG(ERROR) << __func__ << ": failed to skip body to offset "
+                   << nextOffset << ": " << getErrorCodeString(res.error());
+        txn_->sendAbort();
+        return;
+      } else {
+        LOG(INFO) << ": skipping body part " << curPartNum_ << " with delay "
+                  << delayMs_ << " ms";
+      }
+    }
+
+    if (eom) {
+      LOG(INFO) << __func__ << ":    sending EOM with chunk " << curPartNum_;
+      txn_->sendEOM();
+    } else {
+      delayMs_ = folly::Random::rand64(chunkDelayMs_);
+      scheduleTimeout(delayMs_);
+    }
+
+    curPartNum_++;
+  }
+
+private:
+  uint64_t delayMs_{0};
+  uint64_t curPartNum_{0};
+
+  std::unique_ptr<folly::IOBuf> chunkData_{nullptr};
+  std::string script;
+  uint64_t chunkSize_{0};
+  uint64_t chunkDelayMs_{0};
+};
+
+/**
+ * Sends a body chunk, then waits for a reject from the client.
+ * Once reject arrives, sends another body chunk.
+ * Number of pieces/skips to send determined by the script received in client
+ * headers.
+ */
+class PrRejectHandler
+    : public EchoHandler
+    , public folly::AsyncTimeout {
+ public:
+  explicit PrRejectHandler(const HQParams& params) : EchoHandler(params) {
+  }
+
+  PrRejectHandler() = delete;
+
+  void onEOM() noexcept override {
+  }
+
+  void onHeadersComplete(
+      std::unique_ptr<proxygen::HTTPMessage> msg) noexcept override {
+
+    msg->getHeaders().forEach(
+        [&](const std::string& header, const std::string& val) {
+          if (header == kPartiallyReliableScriptHeader) {
+            script = val;
+          } else if (header == kPartiallyReliableChunkSizeHeader) {
+            auto res = folly::tryTo<uint64_t>(val);
+            if (res.hasError()) {
+              LOG(ERROR) << __func__ << ": failed to convert " << header << " '"
+                         << val << "' to uint64_t";
+              txn_->sendAbort();
+              return;
+            }
+            chunkSize_ = *res;
+          } else if (header == kPartiallyReliableChunkDelayCapMsHeader) {
+            auto res = folly::tryTo<uint64_t>(val);
+            if (res.hasError()) {
+              LOG(ERROR) << __func__ << ": failed to convert " << header << " '"
+                         << val << "' to uint64_t";
+              txn_->sendAbort();
+              return;
+            }
+            clientDelayCapMs_ = *res;
+          }
+        });
+
+    proxygen::HTTPMessage resp;
+    resp.setVersionString(getHttpVersion());
+    resp.setStatusCode(200);
+    resp.setStatusMessage("Ok");
+    resp.setWantsKeepalive(true);
+    resp.setPartiallyReliable();
+    txn_->sendHeaders(resp);
+
+    if (chunkSize_ == 0 || script.length() == 0) {
+      txn_->sendEOM();
+      return;
+    }
+
+    attachEventBase(folly::EventBaseManager::get()->getEventBase());
+    sendScriptedBody();
+  }
+
+  void sendScriptedBody() {
+    if (script.length() == 0) {
+      txn_->sendEOM();
+      return;
+    }
+
+    auto curStep = script[0];
+    script.erase(0, 1);
+
+    if (curStep == 'b') {
+      txn_->sendBody(folly::IOBuf::copyBuffer(std::string(chunkSize_, 'b')));
+      if (script.length() == 0) {
+        txn_->sendEOM();
+      } else {
+        scheduleTimeout(clientDelayCapMs_/3);
+      }
+    } else {
+      scheduleTimeout(clientDelayCapMs_ * 2);
+    }
+  }
+
+  void onBodyRejected(uint64_t /* offset */) noexcept override {
+    cancelTimeout();
+    sendScriptedBody();
+  }
+
+  void timeoutExpired() noexcept override {
+    sendScriptedBody();
+  }
+
+private:
+  std::string script;
+  uint64_t chunkSize_{0};
+  uint64_t clientDelayCapMs_{0};
 };
 
 class ContinueHandler : public EchoHandler {
@@ -353,10 +673,11 @@ class RandBytesGenHandler : public BaseSampleHandler {
     error_ = true;
   }
 
-  const uint64_t kMaxAllowedLength{1ULL * 1024 * 1024 * 1024}; // 1 GB
-  const uint64_t kMaxChunkSize{100ULL * 1024};                 // 100 KB
-  const std::string kErrorMsg = folly::to<std::string>(
-      "More than 1GB of data requested. ", "Please request for smaller size.");
+  const uint64_t kMaxAllowedLength{1000 * 1024 * 1024}; // 1 GB
+  const uint64_t kMaxChunkSize{100 * 1024};           // 100 KB
+  const std::string kErrorMsg =
+      folly::to<std::string>("More than 1GB of data requested. ",
+                             "Please request for smaller size.");
   uint64_t respBodyLen_;
   bool paused_{false};
   bool eomSent_{false};
@@ -432,64 +753,7 @@ class HealthCheckHandler : public BaseSampleHandler {
     txn_->sendHeaders(resp);
 
     txn_->sendBody(
-        folly::IOBuf::copyBuffer(healthy_ ? "1-AM-ALIV" : "1-AM-NOT-WELL"));
-  }
-
-  void onBody(std::unique_ptr<folly::IOBuf> /*chain*/) noexcept override {
-    VLOG(10) << "HealthCheckHandler::onBody";
-    assert(false);
-  }
-
-  void onEOM() noexcept override {
-    VLOG(10) << "HealthCheckHandler::onEOM";
-    txn_->sendEOM();
-  }
-
-  void onError(const proxygen::HTTPException& /*error*/) noexcept override {
-    txn_->sendAbort();
-  }
-
- private:
-  bool healthy_;
-};
-
-class MovieListHandler : public BaseSampleHandler {
- public:
-  MovieListHandler(bool healthy, const HQParams& params)
-      : BaseSampleHandler(params), healthy_(healthy) {
-  }
-
-  void onHeadersComplete(
-      std::unique_ptr<proxygen::HTTPMessage> msg) noexcept override {
-    VLOG(10) << "HealthCheckHandler::onHeadersComplete";
-    proxygen::HTTPMessage resp;
-    VLOG(10) << "Setting http-version to " << getHttpVersion();
-    resp.setVersionString(getHttpVersion());
-    if (msg->getMethod() == proxygen::HTTPMethod::GET) {
-      resp.setStatusCode(healthy_ ? 200 : 400);
-      resp.setStatusMessage(healthy_ ? "Ok" : "Not Found");
-    } else {
-      resp.setStatusCode(405);
-      resp.setStatusMessage("Method not allowed");
-    }
-    resp.setWantsKeepalive(true);
-    maybeAddAltSvcHeader(resp);
-
-    //path to movie folders
-    std::string toupdate ="test";
-    std::string path = params_.staticRoot;
-    std::string movie_list;
-    for (const auto & entry : std::filesystem::directory_iterator(path)) {
-      movie_list.append(entry.path());
-      movie_list.append("\n");
-    }
-
-
-
-    txn_->sendHeaders(resp);
-
-    txn_->sendBody(
-        folly::IOBuf::copyBuffer(movie_list));
+        folly::IOBuf::copyBuffer(healthy_ ? "1-AM-ALIVE" : "1-AM-NOT-WELL"));
   }
 
   void onBody(std::unique_ptr<folly::IOBuf> /*chain*/) noexcept override {
@@ -604,8 +868,7 @@ class ServerPushHandler : public BaseSampleHandler {
   };
 
  public:
-  explicit ServerPushHandler(const HQParams& params)
-      : BaseSampleHandler(params) {
+  explicit ServerPushHandler(const HQParams& params) : BaseSampleHandler(params) {
   }
 
   void onHeadersComplete(
@@ -673,7 +936,7 @@ class StaticFileHandler : public BaseSampleHandler {
     maybeAddAltSvcHeader(resp);
     txn_->sendHeaders(resp);
     // use a CPU executor since read(2) of a file can block
-    folly::getUnsafeMutableGlobalCPUExecutor()->add(
+    folly::getCPUExecutor()->add(
         std::bind(&StaticFileHandler::readFile,
                   this,
                   folly::EventBaseManager::get()->getEventBase()));
@@ -698,7 +961,7 @@ class StaticFileHandler : public BaseSampleHandler {
   void onEgressResumed() noexcept override {
     VLOG(10) << "StaticFileHandler::onEgressResumed";
     paused_ = false;
-    folly::getUnsafeMutableGlobalCPUExecutor()->add(
+    folly::getCPUExecutor()->add(
         std::bind(&StaticFileHandler::readFile,
                   this,
                   folly::EventBaseManager::get()->getEventBase()));
@@ -751,4 +1014,4 @@ class StaticFileHandler : public BaseSampleHandler {
   const std::string staticRoot_;
 };
 
-}} // namespace quic::team
+}} // namespace quic::samples

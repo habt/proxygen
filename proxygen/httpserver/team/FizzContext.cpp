@@ -8,8 +8,6 @@
 
 #include <proxygen/httpserver/team/FizzContext.h>
 
-#include <fizz/protocol/ZlibCertificateDecompressor.h>
-#include <fizz/protocol/ZstdCertificateDecompressor.h>
 #include <fizz/server/AeadTicketCipher.h>
 #include <fizz/server/CertManager.h>
 #include <fizz/server/TicketCodec.h>
@@ -109,33 +107,6 @@ IN+p06Nnnm2ZVTRebTx/WnnG+lTXSOuBuGAGpuOSa3yi84kFfYxBFgGcgUQt4i1M
 CzoemuHOSmcvQpU604U+J20FO2gaiYJFxz1h1v+Z/9edY9R9NCwmyFa3LfI=
 -----END RSA PRIVATE KEY-----
 )";
-
-const std::string kPrime256v1CertData = R"(
------BEGIN CERTIFICATE-----
-MIICkDCCAjWgAwIBAgIJAOILJQbZxXtaMAoGCCqGSM49BAMCMIGjMQswCQYDVQQG
-EwJVUzETMBEGA1UECAwKQ2FsaWZvcm5pYTETMBEGA1UEBwwKTWVubG8gUGFyazER
-MA8GA1UECgwIUHJveHlnZW4xETAPBgNVBAsMCFByb3h5Z2VuMREwDwYDVQQDDAhQ
-cm94eWdlbjExMC8GCSqGSIb3DQEJARYiZmFjZWJvb2stcHJveHlnZW5AZ29vZ2xl
-Z3JvdXBzLmNvbTAeFw0yMDA0MDcyMDMyMDRaFw0zMDA0MDUyMDMyMDRaMIGjMQsw
-CQYDVQQGEwJVUzETMBEGA1UECAwKQ2FsaWZvcm5pYTETMBEGA1UEBwwKTWVubG8g
-UGFyazERMA8GA1UECgwIUHJveHlnZW4xETAPBgNVBAsMCFByb3h5Z2VuMREwDwYD
-VQQDDAhQcm94eWdlbjExMC8GCSqGSIb3DQEJARYiZmFjZWJvb2stcHJveHlnZW5A
-Z29vZ2xlZ3JvdXBzLmNvbTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABB5MtBjA
-TaKYREMWTIbzK6utt7Jjb3xWcWowKeN14WFz8sDqvHcAufaN8OP2NBHRAZGi4UDs
-1thkXHtSPcc7DT+jUDBOMB0GA1UdDgQWBBSWhUXpZWkCj6YywA8iZIvl52GvzDAf
-BgNVHSMEGDAWgBSWhUXpZWkCj6YywA8iZIvl52GvzDAMBgNVHRMEBTADAQH/MAoG
-CCqGSM49BAMCA0kAMEYCIQCduzLSWUJ2RgxYvNiApmmH9Yml/s7T2bB2r6+1wlPw
-OgIhAPfLxzClQvbpPvchgQkWEJTsMgmI/CgNWX02SIzeg934
------END CERTIFICATE-----
-)";
-
-const std::string kPrime256v1KeyData = R"(
------BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/NeWSkmQEmaO2f0T
-5ogGmfvwGId3k5i8o8hJOoV9pOuhRANCAAQeTLQYwE2imERDFkyG8yurrbeyY298
-VnFqMCnjdeFhc/LA6rx3ALn2jfDj9jQR0QGRouFA7NbYZFx7Uj3HOw0/
------END PRIVATE KEY-----
-)";
 }; // namespace
 
 namespace quic { namespace team {
@@ -150,25 +121,19 @@ FizzServerContextPtr createFizzServerContext(const HQParams& params) {
     folly::readFile(params.keyFilePath.c_str(), keyData);
   }
   auto cert = fizz::CertUtils::makeSelfCert(certData, keyData);
-  auto certManager = std::make_shared<fizz::server::CertManager>();
+  auto certManager = std::make_unique<fizz::server::CertManager>();
   certManager->addCert(std::move(cert), true);
 
-  auto cert2 =
-      fizz::CertUtils::makeSelfCert(kPrime256v1CertData, kPrime256v1KeyData);
-  certManager->addCert(std::move(cert2), false);
-
   auto serverCtx = std::make_shared<fizz::server::FizzServerContext>();
-  serverCtx->setCertManager(certManager);
+  serverCtx->setCertManager(std::move(certManager));
   auto ticketCipher = std::make_shared<fizz::server::Aead128GCMTicketCipher<
-      fizz::server::TicketCodec<fizz::server::CertificateStorage::X509>>>(
-      serverCtx->getFactoryPtr(), std::move(certManager));
+      fizz::server::TicketCodec<fizz::server::CertificateStorage::X509>>>();
   std::array<uint8_t, 32> ticketSeed;
   folly::Random::secureRandom(ticketSeed.data(), ticketSeed.size());
   ticketCipher->setTicketSecrets({{folly::range(ticketSeed)}});
   serverCtx->setTicketCipher(ticketCipher);
   serverCtx->setClientAuthMode(params.clientAuth);
   serverCtx->setSupportedAlpns(params.supportedAlpns);
-  serverCtx->setAlpnMode(fizz::server::AlpnMode::Required);
   serverCtx->setSendNewSessionTicket(false);
   serverCtx->setEarlyDataFbOnly(false);
   serverCtx->setVersionFallbackEnabled(false);
@@ -202,19 +167,13 @@ FizzClientContextPtr createFizzClientContext(const HQParams& params) {
   ctx->setDefaultShares(
       {fizz::NamedGroup::x25519, fizz::NamedGroup::secp256r1});
   ctx->setSendEarlyData(params.earlyData);
-  auto mgr = std::make_shared<fizz::CertDecompressionManager>();
-  mgr->setDecompressors(
-      {std::make_shared<fizz::ZstdCertificateDecompressor>(),
-       std::make_shared<fizz::ZlibCertificateDecompressor>()});
-  ctx->setCertDecompressionManager(std::move(mgr));
   return ctx;
 }
 
 wangle::SSLContextConfig createSSLContext(const HQParams& params) {
   wangle::SSLContextConfig sslCfg;
   sslCfg.isDefault = true;
-  sslCfg.clientVerification =
-      folly::SSLContext::VerifyClientCertificate::DO_NOT_REQUEST;
+  sslCfg.clientVerification = folly::SSLContext::SSLVerifyPeerEnum::VERIFY;
   if (!params.certificateFilePath.empty() && !params.keyFilePath.empty()) {
     sslCfg.setCertificate(params.certificateFilePath, params.keyFilePath, "");
   } else {
@@ -224,4 +183,4 @@ wangle::SSLContextConfig createSSLContext(const HQParams& params) {
   return sslCfg;
 }
 
-}} // namespace quic::team
+}} // namespace quic::samples

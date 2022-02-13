@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <proxygen/httpserver/team/HQServer.h>
+#include <proxygen/httpserver/samples/hq/HQServer.h>
 
 #include <ostream>
 #include <string>
@@ -23,15 +23,11 @@
 #include <proxygen/lib/http/session/HQDownstreamSession.h>
 #include <proxygen/lib/http/session/HTTPSessionController.h>
 #include <proxygen/lib/utils/WheelTimerInstance.h>
+#include <quic/congestion_control/CongestionControllerFactory.h>
 #include <quic/logging/FileQLogger.h>
 #include <quic/server/QuicServer.h>
 #include <quic/server/QuicServerTransport.h>
 #include <quic/server/QuicSharedUDPSocketFactory.h>
-
-#include <string>
-#include <iostream>
-#include <filesystem>
-namespace fs = std::filesystem;
 
 namespace quic { namespace team {
 using fizz::server::FizzServerContext;
@@ -73,24 +69,26 @@ HTTPTransactionHandler* Dispatcher::getRequestHandler(HTTPMessage* msg,
     shouldPassHealthChecks = false;
     return new HealthCheckHandler(true, params);
   }
-  if (path == "/list_movies") {
-   return new MovieListHandler(true, params);
-  }
   if (path == "/wait" || path == "/release") {
     return new WaitReleaseHandler(
         folly::EventBaseManager::get()->getEventBase(), params);
+  }
+  if (path == "/pr_cat") {
+    return new PrCatHandler(params);
   }
   if (boost::algorithm::starts_with(path, "/push")) {
     return new ServerPushHandler(params);
   }
 
+  if (path == "/pr_scripted_skip") {
+    return new PrSkipHandler(params);
+  }
+
+  if (path == "/pr_scripted_reject") {
+    return new PrRejectHandler(params);
+  }
+
   if (!params.staticRoot.empty()) {
-    if (path == "/getnames"){
-      std::string root_ = folly::to<std::string>(params.staticRoot);
-      std::ofstream file(folly::to<std::string>(root_,"/", path));
-      for (const auto & entry : fs::directory_iterator(root_))
-          file << "/" << entry.path().string().substr(root_.length()) << std::endl;
-    }
     return new StaticFileHandler(params);
   }
 
@@ -101,8 +99,8 @@ void outputQLog(const HQParams& params) {
 }
 
 HQSessionController::HQSessionController(
-    const HQParams& params,
-    const HTTPTransactionHandlerProvider& httpTransactionHandlerProvider)
+  const HQParams& params,
+  const HTTPTransactionHandlerProvider& httpTransactionHandlerProvider)
     : params_(params),
       httpTransactionHandlerProvider_(httpTransactionHandlerProvider) {
 }
@@ -119,31 +117,7 @@ void HQSessionController::startSession(std::shared_ptr<QuicSocket> sock) {
   session_->startNow();
 }
 
-void HQSessionController::onTransportReady(HTTPSessionBase* /*session*/) {
-  if (params_.sendKnobFrame) {
-    sendKnobFrame("Hello, World from Server!");
-  }
-}
-
 void HQSessionController::onDestroy(const HTTPSessionBase&) {
-}
-
-void HQSessionController::sendKnobFrame(const folly::StringPiece str) {
-  if (str.empty()) {
-    return;
-  }
-  uint64_t knobSpace = 0xfaceb00c;
-  uint64_t knobId = 200;
-  Buf buf(folly::IOBuf::create(str.size()));
-  memcpy(buf->writableData(), str.data(), str.size());
-  buf->append(str.size());
-  VLOG(10) << "Sending Knob Frame to peer. KnobSpace: " << std::hex << knobSpace
-           << " KnobId: " << std::dec << knobId << " Knob Blob" << str;
-  const auto knobSent = session_->sendKnob(0xfaceb00c, 200, std::move(buf));
-  if (knobSent.hasError()) {
-    LOG(ERROR) << "Failed to send Knob frame to peer. Received error: "
-               << knobSent.error();
-  }
 }
 
 HTTPTransactionHandler* HQSessionController::getRequestHandler(
@@ -173,8 +147,8 @@ void HQSessionController::detachSession(const HTTPSessionBase* /*session*/) {
 }
 
 HQServerTransportFactory::HQServerTransportFactory(
-    const HQParams& params,
-    const HTTPTransactionHandlerProvider& httpTransactionHandlerProvider)
+  const HQParams& params,
+  const HTTPTransactionHandlerProvider& httpTransactionHandlerProvider)
     : params_(params),
       httpTransactionHandlerProvider_(httpTransactionHandlerProvider) {
 }
@@ -183,11 +157,10 @@ QuicServerTransport::Ptr HQServerTransportFactory::make(
     folly::EventBase* evb,
     std::unique_ptr<folly::AsyncUDPSocket> socket,
     const folly::SocketAddress& /* peerAddr */,
-    quic::QuicVersion,
     std::shared_ptr<const FizzServerContext> ctx) noexcept {
   // Session controller is self owning
-  auto hqSessionController =
-      new HQSessionController(params_, httpTransactionHandlerProvider_);
+  auto hqSessionController = new HQSessionController(
+    params_, httpTransactionHandlerProvider_);
   auto session = hqSessionController->createSession();
   CHECK_EQ(evb, socket->getEventBase());
   auto transport =
@@ -201,35 +174,21 @@ QuicServerTransport::Ptr HQServerTransportFactory::make(
 }
 
 HQServer::HQServer(
-    const HQParams& params,
-    HTTPTransactionHandlerProvider httpTransactionHandlerProvider)
-    : params_(params), server_(quic::QuicServer::createQuicServer()) {
-  server_->setBindV6Only(false);
+  const HQParams& params,
+  HTTPTransactionHandlerProvider httpTransactionHandlerProvider)
+  : params_(params)
+  , server_(quic::QuicServer::createQuicServer()) {
   server_->setCongestionControllerFactory(
-      std::make_shared<ServerCongestionControllerFactory>());
+      std::make_shared<DefaultCongestionControllerFactory>());
   server_->setTransportSettings(params_.transportSettings);
-
-  if (params_.transportSettings.defaultCongestionController ==
-      quic::CongestionControlType::CCP) {
-    quicCcpThreadLauncher_.start(params_.ccpConfig);
-    server_->setCcpId(quicCcpThreadLauncher_.getCcpId());
-  }
-
   server_->setQuicServerTransportFactory(
       std::make_unique<HQServerTransportFactory>(
-          params_, std::move(httpTransactionHandlerProvider)));
+        params_, std::move(httpTransactionHandlerProvider)));
   server_->setQuicUDPSocketFactory(
       std::make_unique<QuicSharedUDPSocketFactory>());
   server_->setHealthCheckToken("health");
   server_->setSupportedVersion(params_.quicVersions);
   server_->setFizzContext(createFizzServerContext(params_));
-  if (params_.rateLimitPerThread) {
-    server_->setRateLimit(
-        [rateLimitPerThread = params_.rateLimitPerThread.value()]() {
-          return rateLimitPerThread;
-        },
-        1s);
-  }
 }
 
 void HQServer::setTlsSettings(const HQParams& params) {
@@ -253,21 +212,20 @@ const folly::SocketAddress HQServer::getAddress() const {
 }
 
 void HQServer::stop() {
-  quicCcpThreadLauncher_.stop();
   server_->shutdown();
   eventbase_.terminateLoopSoon();
 }
 
 void HQServer::rejectNewConnections(bool reject) {
-  server_->rejectNewConnections([reject]() { return reject; });
+  server_->rejectNewConnections(reject);
 }
 
 H2Server::SampleHandlerFactory::SampleHandlerFactory(
-    const HQParams& params,
-    HTTPTransactionHandlerProvider httpTransactionHandlerProvider)
+  const HQParams& params,
+  HTTPTransactionHandlerProvider httpTransactionHandlerProvider)
     : params_(params),
       httpTransactionHandlerProvider_(
-          std::move(httpTransactionHandlerProvider)) {
+        std::move(httpTransactionHandlerProvider)) {
 }
 
 void H2Server::SampleHandlerFactory::onServerStart(
@@ -299,11 +257,11 @@ std::unique_ptr<proxygen::HTTPServerOptions> H2Server::createServerOptions(
       params.transportSettings.advertisedInitialBidiLocalStreamWindowSize;
   serverOptions->receiveSessionWindowSize =
       params.transportSettings.advertisedInitialConnectionWindowSize;
-  serverOptions->handlerFactories =
-      proxygen::RequestHandlerChain()
-          .addThen<SampleHandlerFactory>(
-              params, std::move(httpTransactionHandlerProvider))
-          .build();
+  serverOptions->handlerFactories = proxygen::RequestHandlerChain()
+                                        .addThen<SampleHandlerFactory>(
+                                          params,
+                                          std::move(httpTransactionHandlerProvider))
+                                        .build();
   return serverOptions;
 }
 
@@ -318,17 +276,20 @@ std::unique_ptr<H2Server::AcceptorConfig> H2Server::createServerAcceptorConfig(
 }
 
 std::thread H2Server::run(
-    const HQParams& params,
-    HTTPTransactionHandlerProvider httpTransactionHandlerProvider) {
+  const HQParams& params,
+  HTTPTransactionHandlerProvider httpTransactionHandlerProvider) {
 
   // Start HTTPServer mainloop in a separate thread
-  std::thread t([params = folly::copy(params),
-                 httpTransactionHandlerProvider =
-                     std::move(httpTransactionHandlerProvider)]() mutable {
+  std::thread t(
+    [
+      params = folly::copy(params),
+      httpTransactionHandlerProvider =
+        std::move(httpTransactionHandlerProvider)]() mutable {
     {
       auto acceptorConfig = createServerAcceptorConfig(params);
       auto serverOptions = createServerOptions(
-          params, std::move(httpTransactionHandlerProvider));
+        params,
+        std::move(httpTransactionHandlerProvider));
       proxygen::HTTPServer server(std::move(*serverOptions));
       server.bind(std::move(*acceptorConfig));
       server.start();
@@ -353,4 +314,4 @@ void startServer(const HQParams& params) {
   h2server.join();
 }
 
-}} // namespace quic::team
+}} // namespace quic::samples

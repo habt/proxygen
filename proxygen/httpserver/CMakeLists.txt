@@ -111,6 +111,7 @@ install(
     DESTINATION bin
 )
 
+#[[
 if (BUILD_QUIC)
   add_executable(hq
       samples/hq/main.cpp
@@ -143,6 +144,7 @@ if (BUILD_QUIC)
       DESTINATION bin
   )
 endif()
+]]
 
 if (BUILD_QUIC)
   add_executable(team
@@ -153,6 +155,7 @@ if (BUILD_QUIC)
       team/HQServer.cpp
       team/HQParams.cpp
       team/SampleHandlers.cpp
+      team/PartiallyReliableCurlClient.cpp
   )
   target_compile_options(
       team

@@ -14,6 +14,7 @@
 #include <proxygen/httpserver/team/HQParams.h>
 #include <proxygen/lib/http/session/HQUpstreamSession.h>
 #include <quic/common/Timers.h>
+#include <mutex>
 
 namespace quic {
 
@@ -30,10 +31,14 @@ class HQClient : private proxygen::HQSession::ConnectCallback {
 
   void start();
 
+  void addNewHttpPaths(std::vector<folly::StringPiece> nextPaths_);
+
+  void turnOffSequential();
+
  private:
   proxygen::HTTPTransaction* sendRequest(const proxygen::URL& requestUrl);
 
-  void sendRequests(bool closeSession, uint64_t numOpenableStreams);
+  void sendRequests(bool closeSession);
 
   void sendKnobFrame(const folly::StringPiece str);
 
@@ -46,6 +51,7 @@ class HQClient : private proxygen::HQSession::ConnectCallback {
   void initializeQuicClient();
 
   void initializeQLogger();
+
 
   const HQParams& params_;
 
@@ -60,6 +66,15 @@ class HQClient : private proxygen::HQSession::ConnectCallback {
   std::list<std::unique_ptr<CurlService::CurlClient>> curls_;
 
   std::deque<folly::StringPiece> httpPaths_;
+
+  uint64_t numOpenableStreams;
+
+  bool disableSequential;
+
+
+  //std::string nextPath_;
+
+  // std::chrono::seconds timeout;
 };
 
 void startClient(const HQParams& params);

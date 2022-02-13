@@ -6,11 +6,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <proxygen/httpserver/team/SampleHandlers.h>
-
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/split.hpp>
 #include <string>
+#include <boost/algorithm/string/split.hpp>
+#include <boost/algorithm/string.hpp>
+#include <proxygen/httpserver/samples/hq/SampleHandlers.h>
 
 namespace quic { namespace team {
 
@@ -101,8 +100,7 @@ void ServerPushHandler::onHeadersComplete(
 
   VLOG(2) << "Received GET request for " << path_ << " at: "
           << std::chrono::duration_cast<std::chrono::microseconds>(
-                 std::chrono::steady_clock::now().time_since_epoch())
-                 .count();
+              std::chrono::steady_clock::now().time_since_epoch()).count();
 
   std::string gPushResponseBody;
   std::vector<std::string> pathPieces;
@@ -130,8 +128,8 @@ void ServerPushHandler::onHeadersComplete(
     VLOG(2) << "Sending push txn " << i << "/" << numResponses;
 
     // Create a URL for the pushed resource
-    auto pushedResourceUrl =
-        folly::to<std::string>(msg->getURL(), "/", "pushed", i);
+    auto pushedResourceUrl = folly::to<std::string>(
+        msg->getURL(), "/", "pushed", i);
 
     // Create a pushed transaction and handler
     auto pushedTxn = txn_->newPushedTransaction(&pushTxnHandler_);
@@ -145,8 +143,10 @@ void ServerPushHandler::onHeadersComplete(
     sendPushPromise(pushedTxn, pushedResourceUrl);
 
     // Send the push response
-    sendPushResponse(
-        pushedTxn, pushedResourceUrl, gPushResponseBody, true /* eom */);
+    sendPushResponse(pushedTxn,
+                     pushedResourceUrl,
+                     gPushResponseBody,
+                     true /* eom */);
   }
 
   // Send the response to the original get request
@@ -166,8 +166,7 @@ void ServerPushHandler::sendPushPromise(proxygen::HTTPTransaction* txn,
 
   VLOG(2) << "Sent push promise for " << pushedResourceUrl << " at: "
           << std::chrono::duration_cast<std::chrono::microseconds>(
-                 std::chrono::steady_clock::now().time_since_epoch())
-                 .count();
+              std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
 void ServerPushHandler::sendPushResponse(proxygen::HTTPTransaction* pushTxn,
@@ -184,21 +183,18 @@ void ServerPushHandler::sendPushResponse(proxygen::HTTPTransaction* pushTxn,
   pushTxn->sendHeaders(resp);
 
   std::string responseStr =
-      "I AM THE PUSHED RESPONSE AND I AM NOT RESPONSIBLE: " +
-      pushedResourceBody;
+    "I AM THE PUSHED RESPONSE AND I AM NOT RESPONSIBLE: " + pushedResourceBody;
   pushTxn->sendBody(folly::IOBuf::copyBuffer(responseStr));
 
   VLOG(2) << "Sent push response for " << pushedResourceUrl << " at: "
           << std::chrono::duration_cast<std::chrono::microseconds>(
-                 std::chrono::steady_clock::now().time_since_epoch())
-                 .count();
+              std::chrono::steady_clock::now().time_since_epoch()).count();
 
   if (eom) {
     pushTxn->sendEOM();
     VLOG(2) << "Sent EOM for " << pushedResourceUrl << " at: "
             << std::chrono::duration_cast<std::chrono::microseconds>(
-                   std::chrono::steady_clock::now().time_since_epoch())
-                   .count();
+                std::chrono::steady_clock::now().time_since_epoch()).count();
   }
 }
 
@@ -241,4 +237,4 @@ void ServerPushHandler::onEOM() noexcept {
 void ServerPushHandler::onError(const proxygen::HTTPException& error) noexcept {
   VLOG(10) << "ServerPushHandler::onError error=" << error.what();
 }
-}} // namespace quic::team
+}} // namespace quic::samples

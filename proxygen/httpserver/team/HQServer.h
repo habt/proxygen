@@ -20,9 +20,8 @@
 #include <proxygen/lib/http/session/HQDownstreamSession.h>
 #include <proxygen/lib/http/session/HTTPSessionController.h>
 #include <proxygen/lib/utils/WheelTimerInstance.h>
-#include <quic/congestion_control/ServerCongestionControllerFactory.h>
+#include <quic/congestion_control/CongestionControllerFactory.h>
 #include <quic/logging/FileQLogger.h>
-#include <quic/server/QuicCcpThreadLauncher.h>
 #include <quic/server/QuicServer.h>
 #include <quic/server/QuicServerTransport.h>
 #include <quic/server/QuicSharedUDPSocketFactory.h>
@@ -30,8 +29,8 @@
 namespace quic { namespace team {
 
 using HTTPTransactionHandlerProvider =
-    std::function<proxygen::HTTPTransactionHandler*(proxygen::HTTPMessage*,
-                                                    const HQParams&)>;
+    std::function<proxygen::HTTPTransactionHandler*(
+        proxygen::HTTPMessage*, const HQParams&)>;
 
 /**
  * The Dispatcher object is responsible for spawning
@@ -59,8 +58,8 @@ class HQSessionController
  public:
   using StreamData = std::pair<folly::IOBufQueue, bool>;
 
-  explicit HQSessionController(const HQParams& /* params */,
-                               const HTTPTransactionHandlerProvider&);
+  explicit HQSessionController(
+      const HQParams& /* params */, const HTTPTransactionHandlerProvider&);
 
   ~HQSessionController() override = default;
 
@@ -90,10 +89,6 @@ class HQSessionController
   // The controller instance will be destroyed after this call.
   void detachSession(const proxygen::HTTPSessionBase* /*session*/) override;
 
-  void onTransportReady(proxygen::HTTPSessionBase* /*session*/) override;
-  void onTransportReady(const proxygen::HTTPSessionBase&) override {
-  }
-
  private:
   // The owning session. NOTE: this must be a plain pointer to
   // avoid circular references
@@ -102,8 +97,6 @@ class HQSessionController
   const HQParams& params_;
   // Provider of HTTPTransactionHandler, owned by HQServerTransportFactory
   const HTTPTransactionHandlerProvider& httpTransactionHandlerProvider_;
-
-  void sendKnobFrame(const folly::StringPiece str);
 };
 
 class HQServerTransportFactory : public quic::QuicServerTransportFactory {
@@ -118,9 +111,8 @@ class HQServerTransportFactory : public quic::QuicServerTransportFactory {
       folly::EventBase* evb,
       std::unique_ptr<folly::AsyncUDPSocket> socket,
       const folly::SocketAddress& /* peerAddr */,
-      quic::QuicVersion quicVersion,
-      std::shared_ptr<const fizz::server::FizzServerContext> ctx) noexcept
-      override;
+      std::shared_ptr<const fizz::server::FizzServerContext>
+          ctx) noexcept override;
 
  private:
   // Configuration params
@@ -160,7 +152,6 @@ class HQServer {
   folly::EventBase eventbase_;
   std::shared_ptr<quic::QuicServer> server_;
   folly::Baton<> cv_;
-  QuicCcpThreadLauncher quicCcpThreadLauncher_;
 };
 
 class H2Server {
@@ -198,4 +189,4 @@ class H2Server {
 
 void startServer(const HQParams& params);
 
-}} // namespace quic::team
+}} // namespace quic::samples

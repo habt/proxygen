@@ -17,7 +17,7 @@
 #include <folly/SocketAddress.h>
 #include <proxygen/httpclient/samples/curl/CurlClient.h>
 #include <proxygen/httpserver/HTTPServerOptions.h>
-#include <proxygen/httpserver/samples/hq/HQParams.h>
+#include <proxygen/httpserver/team/HQParams.h>
 #include <proxygen/lib/http/HTTPHeaders.h>
 #include <proxygen/lib/http/HTTPMethod.h>
 #include <quic/QuicConstants.h>

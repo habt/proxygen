@@ -51,7 +51,7 @@ std::cout << "HellO\n";
   initializeQuicClient();
   initializeQLogger();
 
-  this->disableSequential = false;
+  this->disableSequential = true;
 
   // TODO: turn on cert verification
   wangle::TransportInfo tinfo;

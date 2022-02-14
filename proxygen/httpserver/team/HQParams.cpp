@@ -37,7 +37,7 @@ DEFINE_string(outdir, "", "Directory to store responses");
 DEFINE_bool(log_response,
             true,
             "Whether to log the response content to stderr");
-DEFINE_string(congestion, "cubic", "newreno/cubic/bbr/none");
+DEFINE_string(congestion, "cubic", "newreno/cubic/bbr/rbbr/none");
 DEFINE_int32(conn_flow_control, 1024 * 1024, "Connection flow control");
 DEFINE_int32(stream_flow_control, 65 * 1024, "Stream flow control");
 DEFINE_int32(max_receive_packet_size,
@@ -124,7 +124,9 @@ folly::Optional<quic::CongestionControlType> flagsToCongestionControlType(
     return quic::CongestionControlType::NewReno;
   } else if (congestionControlType == "bbr") {
     return quic::CongestionControlType::BBR;
-  } else if (congestionControlType == "none") {
+  } else if (congestionControlType == "rbbr") {
+    return quic::CongestionControlType::RBBR;
+  }else if (congestionControlType == "none") {
     return quic::CongestionControlType::None;
   }
   return folly::none;

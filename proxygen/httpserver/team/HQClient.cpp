@@ -289,10 +289,10 @@ void obtainNextPaths(HQClient& client_) {
 
 void startClient(const HQParams& params) {
   HQClient client(params);
-  std::thread inp (obtainNextPaths, std::ref(client));
+  //std::thread inp (obtainNextPaths, std::ref(client));
   client.start();
   //std::this_thread::sleep_for(std::chrono::seconds(1));
-  inp.join();
+  //inp.join();
 }
 
 }} // namespace quic::team

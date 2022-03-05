@@ -243,7 +243,8 @@ void initializeHttpSettings(HQParams& hqParams) {
   hqParams.h2cEnabled = false;
   hqParams.httpVersion.parse(FLAGS_httpversion);
   hqParams.txnTimeout = std::chrono::milliseconds(FLAGS_txn_timeout);
-  folly::split(',', FLAGS_path, hqParams.httpPaths);
+  //folly::split(',', FLAGS_path, hqParams.httpPaths);
+  hqParams.httpPaths = split(FLAGS_path, ',');
   hqParams.httpBody = FLAGS_body;
   hqParams.httpMethod = hqParams.httpBody.empty() ? proxygen::HTTPMethod::GET
                                                   : proxygen::HTTPMethod::POST;
@@ -453,6 +454,22 @@ const folly::Expected<HQParams, HQInvalidParams> initializeParamsFromCmdline(
     auto errors = builder->invalidParams();
     return folly::makeUnexpected(errors);
   }
+}
+
+std::vector<std::string> split(const std::string &str, char sep)
+{
+	std::vector<std::string> tokens;
+
+	std::string i;
+	std::stringstream ss(str);
+    	while (ss >> i) {
+        	tokens.push_back(i);
+        	if (ss.peek() == sep) {
+            		ss.ignore();
+        	}
+    	}
+
+    	return tokens;
 }
 
 }} // namespace quic::team

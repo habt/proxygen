@@ -77,7 +77,7 @@ struct HQParams {
   proxygen::HTTPHeaders httpHeaders;
   std::string httpBody;
   proxygen::HTTPMethod httpMethod;
-  std::vector<folly::StringPiece> httpPaths;
+  std::vector<std::string> httpPaths;
 
   std::chrono::milliseconds txnTimeout;
 
@@ -149,5 +149,7 @@ std::ostream& operator<<(std::ostream&, HQParams&);
 // Initialized the parameters from the cmdline flags
 const folly::Expected<HQParams, HQInvalidParams> initializeParamsFromCmdline(
     HQParamsBuilderFromCmdline::initializer_list initial = {});
+
+std::vector<std::string> split(const std::string &str, char sep);
 
 }} // namespace quic::team

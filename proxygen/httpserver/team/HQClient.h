@@ -31,9 +31,11 @@ class HQClient : private proxygen::HQSession::ConnectCallback {
 
   void start();
 
-  void addNewHttpPaths(std::vector<folly::StringPiece> nextPaths_);
+  void addNewHttpPaths(std::vector<std::string> nextPaths_);
 
   void turnOffSequential();
+
+  std::deque<std::string> httpPaths_;
 
  private:
   proxygen::HTTPTransaction* sendRequest(const proxygen::URL& requestUrl);
@@ -65,7 +67,7 @@ class HQClient : private proxygen::HQSession::ConnectCallback {
 
   std::list<std::unique_ptr<CurlService::CurlClient>> curls_;
 
-  std::deque<folly::StringPiece> httpPaths_;
+  //std::deque<folly::StringPiece> httpPaths_;
 
   uint64_t numOpenableStreams;
 

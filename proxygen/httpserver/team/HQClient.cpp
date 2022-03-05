@@ -37,7 +37,6 @@
 namespace quic { namespace team {
 
 std::mutex pathMtx; 
-std::vector<folly::StringPiece> nextPaths_;
 
 HQClient::HQClient(const HQParams& params) : params_(params) {
   if (params_.transportSettings.pacingEnabled) {
@@ -51,7 +50,7 @@ std::cout << "HellO\n";
   initializeQuicClient();
   initializeQLogger();
 
-  this->disableSequential = true;
+  this->disableSequential = false;
 
   // TODO: turn on cert verification
   wangle::TransportInfo tinfo;
@@ -133,9 +132,9 @@ void HQClient::sendRequests(bool closeSession) {
   VLOG(10) << "http-version:" << params_.httpVersion;
   numOpenableStreams = quicClient_->getNumOpenableBidirectionalStreams();
   while (!httpPaths_.empty() && numOpenableStreams > 0) {
-    proxygen::URL requestUrl(httpPaths_.front().str(), /*secure=*/true);
+    proxygen::URL requestUrl(httpPaths_.front(), /*secure=*/true);
     sendRequest(requestUrl);
-    VLOG(0) << "URL is " << httpPaths_.front().str() << std::endl;
+    VLOG(0) << "URL is " << httpPaths_.front() << std::endl;
     httpPaths_.pop_front();
     numOpenableStreams--;
     //std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -166,12 +165,15 @@ void HQClient::connectSuccess() {
   numOpenableStreams =
       quicClient_->getNumOpenableBidirectionalStreams();
   CHECK_GT(numOpenableStreams, 0);
+  std::cout << "first connect success httpPaths address: " << &httpPaths_<< std::endl;
   // Lock mutex here
-  //pathMtx.lock();
+  pathMtx.lock();
   httpPaths_.insert(
       httpPaths_.end(), params_.httpPaths.begin(), params_.httpPaths.end());
   //Unlock mutex here
-  //pathMtx.unlock();
+  pathMtx.unlock();
+
+  std::cout << "after insert connect success httpPaths address: " << &httpPaths_<< std::endl;
 
   sendRequests(!params_.migrateClient);
 
@@ -253,10 +255,24 @@ void HQClient::initializeQLogger() {
   quicClient_->setQLogger(std::move(qLogger));
 }
 
-void HQClient::addNewHttpPaths(std::vector<folly::StringPiece> nextPaths_) {
-  httpPaths_.insert(
+void HQClient::addNewHttpPaths(std::vector<std::string> nextPaths_) {
+	std::cout << "before insert" << std::endl;
+	std::cout << "nextPaths address: " << &nextPaths_ << std::endl;
+        std::cout << "httpPaths address: " << &httpPaths_ << " size: "<< httpPaths_.size() << std::endl;
+	for (int i=0; i<httpPaths_.size(); ++i) {
+          std::cout << httpPaths_[i] << ' ';
+    }
+	std::cout << std::endl;      
+   httpPaths_.insert(
         httpPaths_.end(), nextPaths_.begin(), nextPaths_.end()); 
+  //httpPaths_.push_back(nextPaths_[0]);
   std::cout << "new path added is " <<  nextPaths_.front() << ", " << nextPaths_.back() << std::endl;
+  std::cout << "after insert" << std::endl;
+  std::cout << "httpPaths address: " << &httpPaths_<< std::endl;
+  for (int i=0; i<httpPaths_.size(); ++i) {
+	  std::cout << httpPaths_[i] << ' ';
+    }
+  std::cout << std::endl;
 
 }
 
@@ -264,20 +280,52 @@ void HQClient::turnOffSequential(){
   disableSequential = true;
 }
 
+template <class printable>
+void printOutVector(printable paths_, std::string meta){
+	std::cout << "printing " << meta << std::endl;
+	for (int i=0; i<paths_.size(); ++i) {
+		std::cout << paths_[i] << ' ';
+    	}	
+  	std::cout << std::endl;
+}
+
+std::vector<std::string> split2(const std::string &str, char sep)
+{
+	std::vector<std::string> tokens;
+
+	std::string i;
+	std::stringstream ss(str);
+    	while (ss >> i) {
+        	tokens.push_back(i);
+        	if (ss.peek() == sep) {
+            		ss.ignore();
+        	}
+    	}	
+
+    	return tokens;
+}
+
 void obtainNextPaths(HQClient& client_) {
+    std::vector<std::string> nextPaths_;
+    //std::vector<std::string> nextPaths_;
     std::string inp = "PATH1";
     std::cout << "Enter next path";
     int i=0;
-    while(inp != "none") {
+    std::cout << "Inside obtain nextPaths address: " << &nextPaths_ << std::endl;
+    while(inp != "exit") {
       std::cin >> inp;
       //std::this_thread::sleep_for(std::chrono::seconds(2));
       std::cout << i << ". Next path is " << inp << std::endl; 
-      folly::split(',', inp, nextPaths_);
+      //folly::split(',', inp, nextPaths_);
+      nextPaths_ = split2(inp, ',');
       //Lock mutex here
-      //pathMtx.lock();
+      pathMtx.lock();
       client_.addNewHttpPaths(nextPaths_);
-      //pathMtx.unlock();
+      //client_.httpPaths_.insert(client_.httpPaths_.end(), nextPaths_.begin(), nextPaths_.end());
+      //printOutVector(client_.httpPaths_, "httpPaths_");
+      pathMtx.unlock();
       i++;
+      nextPaths_.clear();
     }
     client_.turnOffSequential();
     std::cout << "out of input loop ";
@@ -289,10 +337,10 @@ void obtainNextPaths(HQClient& client_) {
 
 void startClient(const HQParams& params) {
   HQClient client(params);
-  //std::thread inp (obtainNextPaths, std::ref(client));
+  std::thread inp (obtainNextPaths, std::ref(client));
   client.start();
   //std::this_thread::sleep_for(std::chrono::seconds(1));
-  //inp.join();
+  inp.join();
 }
 
 }} // namespace quic::team

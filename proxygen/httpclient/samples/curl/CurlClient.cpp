@@ -269,6 +269,7 @@ void CurlClient::onTrailers(std::unique_ptr<HTTPHeaders>) noexcept {
 
 void CurlClient::onEOM() noexcept {
   LOG_IF(INFO, loggingEnabled_) << "Got EOM";
+  std::cout << url_.getUrl() << "," << "EOM" << std::endl; // temporary solution to notify end of segment download
   if (eomFunc_) {
     eomFunc_.value()();
   }

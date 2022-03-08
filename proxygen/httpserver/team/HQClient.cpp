@@ -20,6 +20,8 @@
 #include <folly/io/async/EventBaseManager.h>
 #include <folly/io/async/ScopedEventBaseThread.h>
 #include <folly/json.h>
+#include <folly/net/NetworkSocket.h>
+
 
 #include <proxygen/httpserver/team/FizzContext.h>
 #include <proxygen/httpserver/team/HQLoggerHelper.h>
@@ -45,12 +47,30 @@ HQClient::HQClient(const HQParams& params) : params_(params) {
   }
 }
 
+void HQClient::handlerReady(uint16_t events) noexcept {
+    int buf_size = 100;
+    char buf[buf_size];
+    std::string message;
+    std::getline (std::cin,message);
+    //int read_size = read(fd_, buf, buf_size);
+    //buf[read_size] = '\0';
+    //scanf("%79s", buf);
+    //std::cout << "fd: " << fd_ << "read_size: " << read_size << " message: " << buf << std::endl;
+    std::cout << "fd: " << fd_ << " message: " << message << std::endl;
+  }
+
 void HQClient::start() {
 std::cout << "HellO\n";
   initializeQuicClient();
   initializeQLogger();
 
   this->disableSequential = false;
+  fd_= 0; //STDIN_FILENO;
+  //AcceptEventHandler acceptEventHandler(&evb_, 0);//try STDIN_FILENO in place of 0
+  //setEventBase(&evb_); 
+  initHandler(&evb_,folly::NetworkSocket(fd_));
+  registerHandler(
+      folly::EventHandler::READ | folly::EventHandler::PERSIST);
 
   // TODO: turn on cert verification
   wangle::TransportInfo tinfo;
@@ -102,7 +122,6 @@ HQClient::sendRequest(const proxygen::URL& requestUrl) {
   if (!txn) {
     return nullptr;
   }
-  //VLOG(0) << "after txn check " << std::endl;
   if (!params_.outdir.empty()) {
     bool canWrite = false;
     // default output file name
@@ -121,7 +140,7 @@ HQClient::sendRequest(const proxygen::URL& requestUrl) {
     }
   }
   client->sendRequest(txn);
-  VLOG(0) << "sent curl request " << std::endl;
+  std::cout << "sent curl request for ===========> " << requestUrl.getUrl() << std::endl;
   curls_.emplace_back(std::move(client));
   return txn;
 }
@@ -131,6 +150,11 @@ static std::function<void()> sendOneMoreRequest;
 void HQClient::sendRequests(bool closeSession) {
   VLOG(10) << "http-version:" << params_.httpVersion;
   numOpenableStreams = quicClient_->getNumOpenableBidirectionalStreams();
+  //std::cout << "Httppaths size: " << httpPaths_.size() << std::endl;
+  //for (int i=0; i<httpPaths_.size(); ++i) {
+    //      std::cout << httpPaths_[i] << ' ';
+ // }
+  //std::cout << std::endl;
   while (!httpPaths_.empty() && numOpenableStreams > 0) {
     proxygen::URL requestUrl(httpPaths_.front(), /*secure=*/true);
     sendRequest(requestUrl);
@@ -165,7 +189,6 @@ void HQClient::connectSuccess() {
   numOpenableStreams =
       quicClient_->getNumOpenableBidirectionalStreams();
   CHECK_GT(numOpenableStreams, 0);
-  std::cout << "first connect success httpPaths address: " << &httpPaths_<< std::endl;
   // Lock mutex here
   pathMtx.lock();
   httpPaths_.insert(
@@ -173,7 +196,6 @@ void HQClient::connectSuccess() {
   //Unlock mutex here
   pathMtx.unlock();
 
-  std::cout << "after insert connect success httpPaths address: " << &httpPaths_<< std::endl;
 
   sendRequests(!params_.migrateClient);
 
@@ -256,21 +278,11 @@ void HQClient::initializeQLogger() {
 }
 
 void HQClient::addNewHttpPaths(std::vector<std::string> nextPaths_) {
-	std::cout << "before insert" << std::endl;
-	std::cout << "nextPaths address: " << &nextPaths_ << std::endl;
-        std::cout << "httpPaths address: " << &httpPaths_ << " size: "<< httpPaths_.size() << std::endl;
-	for (int i=0; i<httpPaths_.size(); ++i) {
-          std::cout << httpPaths_[i] << ' ';
-    }
-	std::cout << std::endl;      
    httpPaths_.insert(
         httpPaths_.end(), nextPaths_.begin(), nextPaths_.end()); 
   //httpPaths_.push_back(nextPaths_[0]);
-  std::cout << "new path added is " <<  nextPaths_.front() << ", " << nextPaths_.back() << std::endl;
-  std::cout << "after insert" << std::endl;
-  std::cout << "httpPaths address: " << &httpPaths_<< std::endl;
   for (int i=0; i<httpPaths_.size(); ++i) {
-	  std::cout << httpPaths_[i] << ' ';
+	  std::cout << "inside add new path " << httpPaths_[i] << ' ';
     }
   std::cout << std::endl;
 
@@ -337,10 +349,10 @@ void obtainNextPaths(HQClient& client_) {
 
 void startClient(const HQParams& params) {
   HQClient client(params);
-  std::thread inp (obtainNextPaths, std::ref(client));
+  //std::thread inp (obtainNextPaths, std::ref(client));
   client.start();
   //std::this_thread::sleep_for(std::chrono::seconds(1));
-  inp.join();
+  //inp.join();
 }
 
 }} // namespace quic::team

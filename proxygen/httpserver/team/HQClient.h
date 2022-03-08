@@ -10,6 +10,7 @@
 
 #include <list>
 #include <memory>
+#include <folly/io/async/EventHandler.h>
 #include <proxygen/httpclient/samples/curl/CurlClient.h>
 #include <proxygen/httpserver/team/HQParams.h>
 #include <proxygen/lib/http/session/HQUpstreamSession.h>
@@ -23,7 +24,7 @@ class FileQLogger;
 
 namespace team {
 
-class HQClient : private proxygen::HQSession::ConnectCallback {
+class HQClient : private proxygen::HQSession::ConnectCallback, public folly::EventHandler {
  public:
   explicit HQClient(const HQParams& params);
 
@@ -54,6 +55,8 @@ class HQClient : private proxygen::HQSession::ConnectCallback {
 
   void initializeQLogger();
 
+  void handlerReady(uint16_t events) noexcept override;
+
 
   const HQParams& params_;
 
@@ -72,6 +75,8 @@ class HQClient : private proxygen::HQSession::ConnectCallback {
   uint64_t numOpenableStreams;
 
   bool disableSequential;
+
+  int fd_;
 
 
   //std::string nextPath_;

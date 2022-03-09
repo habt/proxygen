@@ -49,6 +49,7 @@ HTTPTransactionHandler* Dispatcher::getRequestHandler(HTTPMessage* msg,
                                                       const HQParams& params) {
   DCHECK(msg);
   auto path = msg->getPathAsStringPiece();
+  std::cout << "Received request for " << path << std::endl;
   if (path == "/" || path == "/echo") {
     return new EchoHandler(params);
   }

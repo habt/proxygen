@@ -50,13 +50,19 @@ HQClient::HQClient(const HQParams& params) : params_(params) {
 void HQClient::handlerReady(uint16_t events) noexcept {
     int buf_size = 100;
     char buf[buf_size];
-    std::string message;
-    std::getline (std::cin,message);
+    std::string newPath;
+    std::cout << "Handler ready: before getline" << std::endl;
+    std::getline (std::cin,newPath);
     //int read_size = read(fd_, buf, buf_size);
     //buf[read_size] = '\0';
     //scanf("%79s", buf);
     //std::cout << "fd: " << fd_ << "read_size: " << read_size << " message: " << buf << std::endl;
-    std::cout << "fd: " << fd_ << " message: " << message << std::endl;
+    std::string token = newPath.substr(0, newPath.find("\n"));
+    std::cout << "fd: " << fd_ << " message: " << token << std::endl;
+    std::vector<std::string> strVec;
+    strVec.push_back(token);    
+    addNewHttpPaths(strVec);
+
   }
 
 void HQClient::start() {
@@ -64,9 +70,8 @@ std::cout << "HellO\n";
   initializeQuicClient();
   initializeQLogger();
 
-  this->disableSequential = false;
+  this->disableSequential = true;
   fd_= 0; //STDIN_FILENO;
-  //AcceptEventHandler acceptEventHandler(&evb_, 0);//try STDIN_FILENO in place of 0
   //setEventBase(&evb_); 
   initHandler(&evb_,folly::NetworkSocket(fd_));
   registerHandler(
@@ -150,15 +155,16 @@ static std::function<void()> sendOneMoreRequest;
 void HQClient::sendRequests(bool closeSession) {
   VLOG(10) << "http-version:" << params_.httpVersion;
   numOpenableStreams = quicClient_->getNumOpenableBidirectionalStreams();
-  //std::cout << "Httppaths size: " << httpPaths_.size() << std::endl;
+  std::cout << "sendRequest: Httppaths size: " << httpPaths_.size() << std::endl;
   //for (int i=0; i<httpPaths_.size(); ++i) {
     //      std::cout << httpPaths_[i] << ' ';
  // }
   //std::cout << std::endl;
   while (!httpPaths_.empty() && numOpenableStreams > 0) {
     proxygen::URL requestUrl(httpPaths_.front(), /*secure=*/true);
+    std::cout << "sendReuest: Before sending request" << std::endl;
     sendRequest(requestUrl);
-    VLOG(0) << "URL is " << httpPaths_.front() << std::endl;
+    std::cout  << "URL is " << httpPaths_.front() << std::endl;
     httpPaths_.pop_front();
     numOpenableStreams--;
     //std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -197,7 +203,8 @@ void HQClient::connectSuccess() {
   pathMtx.unlock();
 
 
-  sendRequests(!params_.migrateClient);
+  //sendRequests(!params_.migrateClient);
+  sendRequests(false);
 
   // If there are still pending requests, schedule a callback on the first EOM
   // to try to make some more. That callback will keep scheduling itself until
@@ -285,6 +292,12 @@ void HQClient::addNewHttpPaths(std::vector<std::string> nextPaths_) {
 	  std::cout << "inside add new path " << httpPaths_[i] << ' ';
     }
   std::cout << std::endl;
+  if(nextPaths_[0] == "exit"){
+  	sendRequests(true);
+  } else {
+	std::cout << "Addnewpath: Before sending request" << std::endl; 
+  	sendRequests(false);
+  }
 
 }
 
@@ -351,7 +364,6 @@ void startClient(const HQParams& params) {
   HQClient client(params);
   //std::thread inp (obtainNextPaths, std::ref(client));
   client.start();
-  //std::this_thread::sleep_for(std::chrono::seconds(1));
   //inp.join();
 }
 

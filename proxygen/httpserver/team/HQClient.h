@@ -34,6 +34,8 @@ class HQClient : private proxygen::HQSession::ConnectCallback, public folly::Eve
 
   void addNewHttpPaths(std::vector<std::string> nextPaths_);
 
+  void sendToPipe(proxygen::URL url);
+
   void turnOffSequential();
 
   std::deque<std::string> httpPaths_;

@@ -65,6 +65,14 @@ void HQClient::handlerReady(uint16_t events) noexcept {
 
   }
 
+//static std::function<void()> sendToPipe;
+
+void HQClient::sendToPipe(proxygen::URL url) {
+	std::chrono::microseconds srtt = quicClient_->getState()->lossState.srtt;
+	double receiveRate = quicClient_->getState()->lossState.localReceiveRate;
+	std::cout << url.getUrl() << "," << receiveRate << ","<< "EOM" << std::endl; // temporary solution to notify end of segment download
+}
+
 void HQClient::start() {
 std::cout << "HellO\n";
   initializeQuicClient();
@@ -147,6 +155,12 @@ HQClient::sendRequest(const proxygen::URL& requestUrl) {
   client->sendRequest(txn);
   std::cout << "sent curl request for ===========> " << requestUrl.getUrl() << std::endl;
   curls_.emplace_back(std::move(client));
+
+  // Binding sendToPipe ( a non-static member function with arguements) as callable
+  std::function<void(proxygen::URL)> f = [=](proxygen::URL url) {
+    this->sendToPipe(url);
+  };
+  curls_.back()->setEOMFunc(f);
   return txn;
 }
 
@@ -181,7 +195,7 @@ void HQClient::sendRequests(bool closeSession) {
       };
     };
     CHECK(!curls_.empty());
-    curls_.back()->setEOMFunc(sendOneMoreRequest);
+    //curls_.back()->setEOMFunc(sendOneMoreRequest);
   }
   
   if (closeSession && httpPaths_.empty() && disableSequential ) { 
@@ -226,7 +240,7 @@ void HQClient::connectSuccess() {
     CHECK(!curls_.empty());
     //folly::StringPiece endString = "continue";
     //if(endString != "none"){
-      curls_.back()->setEOMFunc(selfSchedulingRequestRunner);
+      //curls_.back()->setEOMFunc(selfSchedulingRequestRunner);
     //}
   }
 }

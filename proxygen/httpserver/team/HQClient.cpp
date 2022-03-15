@@ -69,9 +69,7 @@ void HQClient::handlerReady(uint16_t events) noexcept {
 
 void HQClient::sendToPipe(proxygen::URL url) {
 	std::chrono::microseconds srtt = session_->getQuicSocket()->getState()->lossState.srtt;
-	double receiveRate = session_->getQuicSocket()->getState()->lossState.localReceiveRate;
-	double filteredRate = session_->getQuicSocket()->getState()->lossState.localFilteredRate;
-	std::cout << url.getUrl() << "," << filteredRate << "," << receiveRate << ","<< srtt.count() << "," <<"EOM" << std::endl; // temporary solution to notify end of segment download
+	std::cout << url.getUrl() << "," << srtt.count() << "," <<"EOM" << std::endl; // temporary solution to notify end of segment download
 }
 
 void HQClient::start() {

@@ -124,8 +124,6 @@ folly::Optional<quic::CongestionControlType> flagsToCongestionControlType(
     return quic::CongestionControlType::NewReno;
   } else if (congestionControlType == "bbr") {
     return quic::CongestionControlType::BBR;
-  } else if (congestionControlType == "rbbr") {
-    return quic::CongestionControlType::RBBR;
   }else if (congestionControlType == "none") {
     return quic::CongestionControlType::None;
   }

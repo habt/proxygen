@@ -48,15 +48,9 @@ HQClient::HQClient(const HQParams& params) : params_(params) {
 }
 
 void HQClient::handlerReady(uint16_t events) noexcept {
-    int buf_size = 100;
-    char buf[buf_size];
     std::string newPath;
     std::cout << "Handler ready: before getline" << std::endl;
     std::getline (std::cin,newPath);
-    //int read_size = read(fd_, buf, buf_size);
-    //buf[read_size] = '\0';
-    //scanf("%79s", buf);
-    //std::cout << "fd: " << fd_ << "read_size: " << read_size << " message: " << buf << std::endl;
     std::string token = newPath.substr(0, newPath.find("\n"));
     std::cout << "fd: " << fd_ << " message: " << token << std::endl;
     std::vector<std::string> strVec;
@@ -71,7 +65,8 @@ void HQClient::sendToPipe(proxygen::URL url) {
 	std::chrono::microseconds srtt = session_->getQuicSocket()->getState()->lossState.srtt;
 	double receiveRate = session_->getQuicSocket()->getState()->lossState.localReceiveRate;
 	double filteredRate = session_->getQuicSocket()->getState()->lossState.localFilteredRate;
-	std::cout << url.getUrl() << "," << filteredRate << "," << receiveRate << ","<< srtt.count() << "," <<"EOM" << std::endl; // temporary solution to notify end of segment download
+	std::chrono::microseconds lrtt = session_->getQuicSocket()->getState()->lossState.lrtt;
+	std::cout << url.getUrl() << "," << filteredRate << "," << receiveRate <<  "," << lrtt.count() << ","<< srtt.count() << "," <<"EOM" << std::endl; // temporary solution to notify end of segment download
 }
 
 void HQClient::start() {
